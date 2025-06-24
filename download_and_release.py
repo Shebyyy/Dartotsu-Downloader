@@ -1,0 +1,211 @@
+import os
+import io
+import time
+import hashlib
+import requests
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
+from google.oauth2 import service_account
+from googleapiclient.errors import HttpError
+import re
+import subprocess
+
+# Constants
+SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
+SERVICE_ACCOUNT_FILE = 'service_account.json'
+TELEGRAM_BOT_TOKEN = 'YOUR_BOT_TOKEN'  # Replace with your Telegram bot token
+TELEGRAM_CHAT_ID = 'YOUR_CHAT_ID'  # Replace with your Telegram chat ID
+WAIT_TIME = 5  # Time in seconds to wait between uploads to avoid rate limits
+GITHUB_DOWNLOADS_PATH = os.path.join(os.getcwd(), "downloads")  # Path to 'downloads' folder in GitHub repo
+
+FOLDER_IDS = [
+    '1nWYex54zd58SVitJUCva91_4k1PPTdP3',  # Main folder
+    '1S4QzdKz7ZofhiF5GAvjMdBvYK7YhndKM'   # Subfolder
+]
+
+GITHUB_REPO = os.getenv("GITHUB_REPOSITORY")  # e.g., "username/repository"
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")  # GitHub Personal Access Token
+
+# Authenticate with Google Drive
+credentials = service_account.Credentials.from_service_account_file(
+    SERVICE_ACCOUNT_FILE, scopes=SCOPES
+)
+drive_service = build('drive', 'v3', credentials=credentials)
+
+# Function to fetch files in a folder
+def fetch_files(folder_id):
+    results = drive_service.files().list(
+        q=f"'{folder_id}' in parents",
+        fields="files(id, name)"
+    ).execute()
+    return results.get('files', [])
+
+# Function to calculate file hash (MD5)
+def calculate_file_hash(file_path):
+    hash_md5 = hashlib.md5()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hash_md5.update(chunk)
+    return hash_md5.hexdigest()
+
+# Function to download a file from Google Drive (overwrites existing files)
+def download_file(file_id, file_name):
+    try:
+        request = drive_service.files().get_media(fileId=file_id)
+        file_path = os.path.join(GITHUB_DOWNLOADS_PATH, file_name)
+        os.makedirs(GITHUB_DOWNLOADS_PATH, exist_ok=True)  # Ensure the 'downloads' folder exists
+
+        with io.FileIO(file_path, "wb") as fh:
+            downloader = MediaIoBaseDownload(fh, request)
+            done = False
+            while not done:
+                status, done = downloader.next_chunk()
+                print(f"Downloading {file_name}... {int(status.progress() * 100)}%")
+        return file_path
+    except HttpError as e:
+        if "fileNotDownloadable" in str(e):
+            print(f"Skipping non-downloadable file: {file_name}")
+            return None
+        else:
+            raise
+
+# Function to create a GitHub release and upload files
+def create_github_release(repo, token, tag, files):
+    release_url = f"https://api.github.com/repos/{repo}/releases"
+    headers = {"Authorization": f"token {token}"}
+
+    # Create a new release
+    release_data = {"tag_name": tag, "name": tag, "body": "Automated release with uploaded files"}
+    release_response = requests.post(release_url, json=release_data, headers=headers)
+    if release_response.status_code != 201:
+        raise Exception(f"Failed to create release: {release_response.content}")
+
+    release = release_response.json()
+    upload_url = release["upload_url"].split("{")[0]
+
+    # Upload files to the release
+    for file_path in files:
+        if file_path:  # Skip if file_path is None
+            file_name = os.path.basename(file_path)
+            with open(file_path, "rb") as f:
+                headers.update({"Content-Type": "application/octet-stream"})
+                upload_response = requests.post(
+                    f"{upload_url}?name={file_name}", headers=headers, data=f
+                )
+                if upload_response.status_code not in (200, 201):
+                    raise Exception(f"Failed to upload file {file_name}: {upload_response.content}")
+            print(f"Uploaded {file_name} to GitHub release.")
+    print(f"Release {tag} created successfully.")
+
+# Function to upload file to Telegram
+def upload_to_telegram(file_path, file_name):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument"
+    file_size = os.path.getsize(file_path)
+
+    if file_size > 50 * 1024 * 1024:
+        print(f"File too large for Telegram: {file_name} ({file_size / (1024 * 1024):.2f} MB)")
+        return
+
+    with open(file_path, 'rb') as file:
+        response = requests.post(url, data={'chat_id': TELEGRAM_CHAT_ID}, files={'document': file})
+        if response.status_code == 200:
+            print(f"Successfully uploaded {file_name} to Telegram.")
+        else:
+            print(f"Failed to upload {file_name} to Telegram: {response.json()}")
+
+# Function to increment the version (e.g., v0.0.1 -> v0.0.2)
+def increment_version(major, minor, patch):
+    patch += 1
+    if patch > 9:
+        patch = 0
+        minor += 1
+    if minor > 9:
+        minor = 0
+        major += 1
+    return major, minor, patch
+
+# Function to get the latest GitHub tag version
+def get_latest_tag_version(repo, token):
+    url = f"https://api.github.com/repos/{repo}/releases/latest"
+    headers = {'Authorization': f'token {token}'}
+    response = requests.get(url, headers=headers)
+
+    if response.status_code == 200:
+        tag_name = response.json().get('tag_name', 'v0.0.0')
+        match = re.match(r'v(\d+)\.(\d+)\.(\d+)', tag_name)
+        if match:
+            return map(int, match.groups())
+    return 0, 0, 0
+
+# Function to configure git user identity
+def configure_git_identity():
+    subprocess.run(['git', 'config', '--global', 'user.name', 'Sheby'], check=True)  # Replace with your name
+    subprocess.run(['git', 'config', '--global', 'user.email', 'sheby@gmail.com'], check=True)  # Replace with your email
+    print("Configured Git identity.")
+
+# Function to commit and push changes to GitHub
+def commit_and_push():
+    try:
+        # Add files to staging
+        subprocess.run(['git', 'add', '.'], check=True)
+        subprocess.run(['git', 'commit', '-m', 'Add downloaded files'], check=True)
+        subprocess.run(['git', 'push', 'origin', 'main'], check=True)
+        print("Committed and pushed files to GitHub.")
+    except subprocess.CalledProcessError as e:
+        print(f"Error during git operations: {e}")
+
+# Main script logic
+def main():
+    downloaded_files = []
+    existing_files_hashes = {}
+
+    # Fetch and download files from Google Drive
+    for folder_id in FOLDER_IDS:
+        print(f"Fetching files from folder ID: {folder_id}")
+        files = fetch_files(folder_id)
+        if not files:
+            print(f"No files found in folder ID: {folder_id}")
+            continue
+
+        for file in files:
+            file_id = file['id']
+            file_name = file['name']
+            print(f"Found file: {file_name}")
+            file_path = download_file(file_id, file_name)  # Overwrites existing file
+            if file_path:
+                # Check if the file has changed (based on hash)
+                file_hash = calculate_file_hash(file_path)
+                if file_name not in existing_files_hashes or existing_files_hashes[file_name] != file_hash:
+                    downloaded_files.append(file_path)
+                    existing_files_hashes[file_name] = file_hash
+                else:
+                    print(f"File {file_name} is unchanged. Skipping release and upload.")
+
+    if downloaded_files:
+        # Configure git user identity
+        configure_git_identity()
+
+        # Commit and push the downloaded files to GitHub
+        commit_and_push()
+
+        # Get latest GitHub tag version and increment
+        major, minor, patch = get_latest_tag_version(GITHUB_REPO, GITHUB_TOKEN)
+        major, minor, patch = increment_version(major, minor, patch)
+        tag_name = f"v{major}.{minor}.{patch}"
+
+        # Create GitHub release
+        if GITHUB_REPO and GITHUB_TOKEN:
+            create_github_release(GITHUB_REPO, GITHUB_TOKEN, tag_name, downloaded_files)
+        else:
+            print("GitHub repository or token not configured. Skipping release creation.")
+
+        # Upload files to Telegram
+        for file_path in downloaded_files:
+            file_name = os.path.basename(file_path)
+            upload_to_telegram(file_path, file_name)
+            time.sleep(WAIT_TIME)
+    else:
+        print("No new or changed files to commit, release, or upload.")
+
+if __name__ == "__main__":
+    main()
