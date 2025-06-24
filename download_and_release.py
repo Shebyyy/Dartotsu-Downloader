@@ -128,7 +128,7 @@ def get_external_commit_hash(repo):
 
     if response.status_code == 200:
         commit_sha = response.json()[0].get('sha')
-        return commit_sha[-5:] if commit_sha else "00000"
+        return commit_sha[:7] if commit_sha else "0000000"
     else:
         print(f"Failed to fetch commits from {repo}: {response.text}")
         return "00000"
