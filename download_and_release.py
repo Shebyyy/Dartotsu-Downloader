@@ -122,30 +122,16 @@ def upload_to_telegram(file_path, file_name):
         else:
             print(f"Failed to upload {file_name} to Telegram: {response.json()}")
 
-# Function to increment the version (e.g., v0.0.1 -> v0.0.2)
-def increment_version(major, minor, patch):
-    patch += 1
-    if patch > 9:
-        patch = 0
-        minor += 1
-    if minor > 9:
-        minor = 0
-        major += 1
-    return major, minor, patch
-
-# Function to get the latest GitHub tag version
-def get_latest_tag_version(repo, token):
-    url = f"https://api.github.com/repos/{repo}/releases/latest"
-    headers = {'Authorization': f'token {token}'}
-    response = requests.get(url, headers=headers)
+def get_external_commit_hash(repo):
+    url = f"https://api.github.com/repos/{repo}/commits"
+    response = requests.get(url)
 
     if response.status_code == 200:
-        tag_name = response.json().get('tag_name', 'v0.0.0')
-        match = re.match(r'v(\d+)\.(\d+)\.(\d+)', tag_name)
-        if match:
-            return map(int, match.groups())
-    return 0, 0, 0
-
+        commit_sha = response.json()[0].get('sha')
+        return commit_sha[-5:] if commit_sha else "00000"
+    else:
+        print(f"Failed to fetch commits from {repo}: {response.text}")
+        return "00000"
 # Function to configure git user identity
 def configure_git_identity():
     subprocess.run(['git', 'config', '--global', 'user.name', 'Sheby'], check=True)  # Replace with your name
@@ -190,31 +176,31 @@ def main():
                 else:
                     print(f"File {file_name} is unchanged. Skipping release and upload.")
 
-    if downloaded_files:
-        # Configure git user identity
-        configure_git_identity()
-
-        # Commit and push the downloaded files to GitHub
-        commit_and_push()
-
-        # Get latest GitHub tag version and increment
-        major, minor, patch = get_latest_tag_version(GITHUB_REPO, GITHUB_TOKEN)
-        major, minor, patch = increment_version(major, minor, patch)
-        tag_name = f"v{major}.{minor}.{patch}"
-
-        # Create GitHub release
-        if GITHUB_REPO and GITHUB_TOKEN:
-            create_github_release(GITHUB_REPO, GITHUB_TOKEN, tag_name, downloaded_files)
+        if downloaded_files:
+            # Configure git user identity
+            configure_git_identity()
+    
+            # Commit and push the downloaded files to GitHub
+            commit_and_push()
+    
+            # Use last 5 characters of external repo's latest commit as tag
+            EXTERNAL_REPO = "aayush2622/Dartotsu"  # Replace with your external repo
+            tag_name = get_external_commit_hash(EXTERNAL_REPO)
+            print(f"Using tag based on external commit hash: {tag_name}")
+    
+            # Create GitHub release
+            if GITHUB_REPO and GITHUB_TOKEN:
+                create_github_release(GITHUB_REPO, GITHUB_TOKEN, tag_name, downloaded_files)
+            else:
+                print("GitHub repository or token not configured. Skipping release creation.")
+    
+            # Upload files to Telegram
+            for file_path in downloaded_files:
+                file_name = os.path.basename(file_path)
+                upload_to_telegram(file_path, file_name)
+                time.sleep(WAIT_TIME)
         else:
-            print("GitHub repository or token not configured. Skipping release creation.")
-
-        # Upload files to Telegram
-        for file_path in downloaded_files:
-            file_name = os.path.basename(file_path)
-            upload_to_telegram(file_path, file_name)
-            time.sleep(WAIT_TIME)
-    else:
-        print("No new or changed files to commit, release, or upload.")
+            print("No new or changed files to commit, release, or upload.")
 
 if __name__ == "__main__":
     main()
