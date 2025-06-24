@@ -106,21 +106,22 @@ def create_github_release(repo, token, tag, files):
             print(f"Uploaded {file_name} to GitHub release.")
     print(f"Release {tag} created successfully.")
 
-# Function to upload file to Telegram
-def upload_to_telegram(file_path, file_name):
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument"
-    file_size = os.path.getsize(file_path)
+# # Function to upload file to Telegram
+# def upload_to_telegram(file_path, file_name):
+#     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument"
+#     file_size = os.path.getsize(file_path)
 
-    if file_size > 50 * 1024 * 1024:
-        print(f"File too large for Telegram: {file_name} ({file_size / (1024 * 1024):.2f} MB)")
-        return
+#     if file_size > 50 * 1024 * 1024:
+#         print(f"File too large for Telegram: {file_name} ({file_size / (1024 * 1024):.2f} MB)")
+#         return
 
-    with open(file_path, 'rb') as file:
-        response = requests.post(url, data={'chat_id': TELEGRAM_CHAT_ID}, files={'document': file})
-        if response.status_code == 200:
-            print(f"Successfully uploaded {file_name} to Telegram.")
-        else:
-            print(f"Failed to upload {file_name} to Telegram: {response.json()}")
+#     with open(file_path, 'rb') as file:
+#         response = requests.post(url, data={'chat_id': TELEGRAM_CHAT_ID}, files={'document': file})
+#         if response.status_code == 200:
+#             print(f"Successfully uploaded {file_name} to Telegram.")
+#         else:
+#             print(f"Failed to upload {file_name} to Telegram: {response.json()}")
+
 
 def get_external_commit_hash(repo):
     url = f"https://api.github.com/repos/{repo}/commits"
@@ -154,7 +155,7 @@ def main():
     downloaded_files = []
     existing_files_hashes = {}
 
-    # Fetch and download files from Google Drive
+    # Step 1: Download files from all folders
     for folder_id in FOLDER_IDS:
         print(f"Fetching files from folder ID: {folder_id}")
         files = fetch_files(folder_id)
@@ -166,9 +167,8 @@ def main():
             file_id = file['id']
             file_name = file['name']
             print(f"Found file: {file_name}")
-            file_path = download_file(file_id, file_name)  # Overwrites existing file
+            file_path = download_file(file_id, file_name)
             if file_path:
-                # Check if the file has changed (based on hash)
                 file_hash = calculate_file_hash(file_path)
                 if file_name not in existing_files_hashes or existing_files_hashes[file_name] != file_hash:
                     downloaded_files.append(file_path)
@@ -176,31 +176,33 @@ def main():
                 else:
                     print(f"File {file_name} is unchanged. Skipping release and upload.")
 
-        if downloaded_files:
-            # Configure git user identity
-            configure_git_identity()
-    
-            # Commit and push the downloaded files to GitHub
-            commit_and_push()
-    
-            # Use last 5 characters of external repo's latest commit as tag
-            EXTERNAL_REPO = "aayush2622/Dartotsu"  # Replace with your external repo
-            tag_name = get_external_commit_hash(EXTERNAL_REPO)
-            print(f"Using tag based on external commit hash: {tag_name}")
-    
-            # Create GitHub release
-            if GITHUB_REPO and GITHUB_TOKEN:
-                create_github_release(GITHUB_REPO, GITHUB_TOKEN, tag_name, downloaded_files)
-            else:
-                print("GitHub repository or token not configured. Skipping release creation.")
-    
-            # Upload files to Telegram
-            for file_path in downloaded_files:
-                file_name = os.path.basename(file_path)
-                upload_to_telegram(file_path, file_name)
-                time.sleep(WAIT_TIME)
+    # Step 2: If new/changed files were downloaded
+    if downloaded_files:
+        configure_git_identity()
+        commit_and_push()
+
+        # Generate tag from external repo commit hash
+        EXTERNAL_REPO = "aayush2622/Dartotsu"
+        tag_name = get_external_commit_hash(EXTERNAL_REPO)
+        print(f"Using tag based on external commit hash: {tag_name}")
+
+        # ✅ Avoid duplicate release
+        release_check_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/tags/{tag_name}"
+        headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+        check_response = requests.get(release_check_url, headers=headers)
+
+        if check_response.status_code == 200:
+            print(f"Release with tag '{tag_name}' already exists. Skipping release creation.")
         else:
-            print("No new or changed files to commit, release, or upload.")
+            create_github_release(GITHUB_REPO, GITHUB_TOKEN, tag_name, downloaded_files)
+
+        # Upload to Telegram
+        for file_path in downloaded_files:
+            file_name = os.path.basename(file_path)
+            upload_to_telegram(file_path, file_name)
+            time.sleep(WAIT_TIME)
+    else:
+        print("No new or changed files to commit, release, or upload.")
 
 if __name__ == "__main__":
     main()
