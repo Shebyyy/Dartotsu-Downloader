@@ -4,10 +4,10 @@ const axios = require('axios');
 // Set up external repository details
 const EXTERNAL_REPO_OWNER = 'aayush2622'; // Replace with actual repo owner
 const EXTERNAL_REPO = 'Dartotsu'; // Replace with actual repo name
-const YOUR_REPO = 'Shebyyy/Dartotsu-Download'; // Your repository where the second workflow exists
+const YOUR_REPO = 'Dartotsu-Downloader'; // Your repository where the second workflow exists
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN; // GitHub token for authentication
-const WORKFLOW_TRIGGER_URL = `https://api.github.com/repos/Shebyyy/Dartotsu-Download/actions/workflows/main.yml/dispatches`; // URL to trigger your second workflow
+const WORKFLOW_TRIGGER_URL = `https://api.github.com/repos/SDartotsu-Downloader/actions/workflows/main.yml/dispatches`; // URL to trigger your second workflow
 
 // Get the latest commits from the external repository
 const getExternalRepoCommits = async () => {
