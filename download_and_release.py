@@ -3,6 +3,8 @@ import io
 import time
 import hashlib
 import requests
+import json
+import sys
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 from google.oauth2 import service_account
@@ -12,25 +14,32 @@ import subprocess
 
 # Constants
 SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
-SERVICE_ACCOUNT_FILE = 'service_account.json'
-TELEGRAM_BOT_TOKEN = 'YOUR_BOT_TOKEN'  # Replace with your Telegram bot token
-TELEGRAM_CHAT_ID = 'YOUR_CHAT_ID'  # Replace with your Telegram chat ID
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 WAIT_TIME = 5  # Time in seconds to wait between uploads to avoid rate limits
-GITHUB_DOWNLOADS_PATH = os.path.join(os.getcwd(), "downloads")  # Path to 'downloads' folder in GitHub repo
+GITHUB_DOWNLOADS_PATH = os.path.join(os.getcwd(), "downloads")
+
+# ✅ Get service account JSON from command-line argument
+if len(sys.argv) < 2:
+    print("Usage: python download_and_release.py '<SERVICE_ACCOUNT_JSON>'")
+    sys.exit(1)
+
+try:
+    service_account_info = json.loads(sys.argv[1])
+    credentials = service_account.Credentials.from_service_account_info(service_account_info, scopes=SCOPES)
+    drive_service = build('drive', 'v3', credentials=credentials)
+except Exception as e:
+    print("Invalid service account JSON:", str(e))
+    sys.exit(1)
+
+# GitHub environment
+GITHUB_REPO = os.getenv("GITHUB_REPOSITORY")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 
 FOLDER_IDS = [
-    '1nWYex54zd58SVitJUCva91_4k1PPTdP3',  # Main folder
-    '1S4QzdKz7ZofhiF5GAvjMdBvYK7YhndKM'   # Subfolder
+    '1nWYex54zd58SVitJUCva91_4k1PPTdP3',
+    '1S4QzdKz7ZofhiF5GAvjMdBvYK7YhndKM'
 ]
-
-GITHUB_REPO = os.getenv("GITHUB_REPOSITORY")  # e.g., "username/repository"
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")  # GitHub Personal Access Token
-
-# Authenticate with Google Drive
-credentials = service_account.Credentials.from_service_account_file(
-    SERVICE_ACCOUNT_FILE, scopes=SCOPES
-)
-drive_service = build('drive', 'v3', credentials=credentials)
 
 # Function to fetch files in a folder
 def fetch_files(folder_id):
