@@ -142,8 +142,11 @@ def configure_git_identity():
 # Function to commit and push changes to GitHub
 def commit_and_push():
     try:
-        # Add files to staging
         subprocess.run(['git', 'add', '.'], check=True)
+        result = subprocess.run(['git', 'diff', '--cached', '--quiet'])
+        if result.returncode == 0:
+            print("No changes to commit.")
+            return
         subprocess.run(['git', 'commit', '-m', 'Add downloaded files'], check=True)
         subprocess.run(['git', 'push', 'origin', 'main'], check=True)
         print("Committed and pushed files to GitHub.")
@@ -199,7 +202,7 @@ def main():
         # Upload to Telegram
         for file_path in downloaded_files:
             file_name = os.path.basename(file_path)
-            upload_to_telegram(file_path, file_name)
+            # upload_to_telegram(file_path, file_name)
             time.sleep(WAIT_TIME)
     else:
         print("No new or changed files to commit, release, or upload.")
