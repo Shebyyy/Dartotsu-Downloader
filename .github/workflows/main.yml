@@ -31,7 +31,4 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          echo "$SERVICE_ACCOUNT_JSON" > service_account.json
-          echo "$TELEGRAM_BOT_TOKEN" > TELEGRAM_BOT_TOKEN
-          echo "$TELEGRAM_CHAT_ID" > TELEGRAM_CHAT_ID
-          python download_and_release.py
+          python download_and_release.py "$SERVICE_ACCOUNT_JSON"
