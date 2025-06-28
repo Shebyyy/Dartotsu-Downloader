@@ -25,12 +25,22 @@ if len(sys.argv) < 2:
     print("Usage: python download_and_release.py '<SERVICE_ACCOUNT_JSON>'")
     sys.exit(1)
 
+service_account_info = None
 try:
-    service_account_info = json.loads(sys.argv[1])
+    service_account_json = sys.argv[1].strip()  # Remove any leading/trailing whitespace
+    if not service_account_json:
+        raise ValueError("Service account JSON is empty")
+    service_account_info = json.loads(service_account_json)
     credentials = service_account.Credentials.from_service_account_info(service_account_info, scopes=SCOPES)
     drive_service = build('drive', 'v3', credentials=credentials)
+except json.JSONDecodeError as e:
+    print(f"Invalid service account JSON format: {str(e)}")
+    sys.exit(1)
+except ValueError as e:
+    print(f"Invalid service account JSON: {str(e)}")
+    sys.exit(1)
 except Exception as e:
-    print("Invalid service account JSON:", str(e))
+    print(f"Error processing service account JSON: {str(e)}")
     sys.exit(1)
 
 # GitHub environment
