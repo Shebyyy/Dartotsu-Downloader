@@ -18,6 +18,7 @@ TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 WAIT_TIME = 5  # Time in seconds to wait between uploads to avoid rate limits
 GITHUB_DOWNLOADS_PATH = os.path.join(os.getcwd(), "downloads")
+COMMIT_LOG_PATH = os.path.join(os.getcwd(), "commit_log_between_tags.md")  # Path to the commit log
 
 # ✅ Get service account JSON from command-line argument
 if len(sys.argv) < 2:
@@ -78,13 +79,21 @@ def download_file(file_id, file_name):
         else:
             raise
 
-# Function to create a GitHub release and upload files
+# Function to create a GitHub release and upload files with commit log as notes
 def create_github_release(repo, token, tag, files):
     release_url = f"https://api.github.com/repos/{repo}/releases"
     headers = {"Authorization": f"token {token}"}
 
+    # Read the commit log for release notes
+    release_body = "Automated release with uploaded files"
+    if os.path.exists(COMMIT_LOG_PATH):
+        with open(COMMIT_LOG_PATH, "r") as f:
+            release_body = f.read()
+    else:
+        print(f"Warning: {COMMIT_LOG_PATH} not found, using default release body.")
+
     # Create a new release
-    release_data = {"tag_name": tag, "name": tag, "body": "Automated release with uploaded files"}
+    release_data = {"tag_name": tag, "name": tag, "body": release_body}
     release_response = requests.post(release_url, json=release_data, headers=headers)
     if release_response.status_code != 201:
         raise Exception(f"Failed to create release: {release_response.content}")
@@ -104,25 +113,9 @@ def create_github_release(repo, token, tag, files):
                 if upload_response.status_code not in (200, 201):
                     raise Exception(f"Failed to upload file {file_name}: {upload_response.content}")
             print(f"Uploaded {file_name} to GitHub release.")
-    print(f"Release {tag} created successfully.")
+    print(f"Release {tag} created successfully with commit log notes.")
 
-# # Function to upload file to Telegram
-# def upload_to_telegram(file_path, file_name):
-#     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument"
-#     file_size = os.path.getsize(file_path)
-
-#     if file_size > 50 * 1024 * 1024:
-#         print(f"File too large for Telegram: {file_name} ({file_size / (1024 * 1024):.2f} MB)")
-#         return
-
-#     with open(file_path, 'rb') as file:
-#         response = requests.post(url, data={'chat_id': TELEGRAM_CHAT_ID}, files={'document': file})
-#         if response.status_code == 200:
-#             print(f"Successfully uploaded {file_name} to Telegram.")
-#         else:
-#             print(f"Failed to upload {file_name} to Telegram: {response.json()}")
-
-
+# Function to get external commit hash
 def get_external_commit_hash(repo):
     url = f"https://api.github.com/repos/{repo}/commits"
     response = requests.get(url)
@@ -133,10 +126,11 @@ def get_external_commit_hash(repo):
     else:
         print(f"Failed to fetch commits from {repo}: {response.text}")
         return "00000"
+
 # Function to configure git user identity
 def configure_git_identity():
-    subprocess.run(['git', 'config', '--global', 'user.name', 'Sheby'], check=True)  # Replace with your name
-    subprocess.run(['git', 'config', '--global', 'user.email', 'sheby@gmail.com'], check=True)  # Replace with your email
+    subprocess.run(['git', 'config', '--global', 'user.name', 'Sheby'], check=True)
+    subprocess.run(['git', 'config', '--global', 'user.email', 'sheby@gmail.com'], check=True)
     print("Configured Git identity.")
 
 # Function to commit and push changes to GitHub
